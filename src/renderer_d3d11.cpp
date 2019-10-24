@@ -1022,7 +1022,7 @@ namespace bgfx { namespace d3d11
 						;
 					m_scd.swapEffect = m_swapEffect;
 					m_scd.alphaMode  = DXGI_ALPHA_MODE_IGNORE;
-					m_scd.flags      = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+					m_scd.flags      = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 
 					m_scd.maxFrameLatency = bx::min<uint8_t>(_init.resolution.maxFrameLatency, 3);
 					m_scd.nwh             = g_platformData.nwh;
@@ -2250,7 +2250,7 @@ namespace bgfx { namespace d3d11
 					if (NULL != m_swapChain
 					&&  m_needPresent)
 					{
-						hr = m_swapChain->Present(syncInterval, 0);
+						hr = m_swapChain->Present(syncInterval, syncInterval == 0 ? DXGI_PRESENT_ALLOW_TEARING : 0);
 
 						m_needPresent = false;
 					}
@@ -5248,15 +5248,38 @@ namespace bgfx { namespace d3d11
 				const uint32_t srcZ = blit.m_srcZ;
 				const uint32_t dstZ = blit.m_dstZ;
 
-				deviceCtx->CopySubresourceRegion(dst.m_ptr
-					, dstZ*dst.m_numMips+blit.m_dstMip
-					, blit.m_dstX
-					, blit.m_dstY
-					, 0
-					, src.m_ptr
-					, srcZ*src.m_numMips+blit.m_srcMip
-					, depthStencil ? NULL : &box
+				IDXGIKeyedMutex* mutex = NULL;
+
+				if (SUCCEEDED(src.m_ptr->QueryInterface(&mutex)))
+				{
+					mutex->AcquireSync(1, INFINITE);
+
+					deviceCtx->CopySubresourceRegion(dst.m_ptr
+						, dstZ * dst.m_numMips + blit.m_dstMip
+						, blit.m_dstX
+						, blit.m_dstY
+						, 0
+						, src.m_ptr
+						, srcZ * src.m_numMips + blit.m_srcMip
+						, depthStencil ? NULL : &box
 					);
+
+					mutex->ReleaseSync(0);
+
+					mutex->Release();
+				}
+				else
+				{
+					deviceCtx->CopySubresourceRegion(dst.m_ptr
+						, dstZ * dst.m_numMips + blit.m_dstMip
+						, blit.m_dstX
+						, blit.m_dstY
+						, 0
+						, src.m_ptr
+						, srcZ * src.m_numMips + blit.m_srcMip
+						, depthStencil ? NULL : &box
+					);
+				}
 			}
 		}
 	}
