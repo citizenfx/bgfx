@@ -25,7 +25,7 @@ namespace fuzz {
 class FuzzerPassAddUsefulConstructs : public FuzzerPass {
  public:
   FuzzerPassAddUsefulConstructs(
-      opt::IRContext* ir_context, FactManager* fact_manager,
+      opt::IRContext* ir_context, TransformationContext* transformation_context,
       FuzzerContext* fuzzer_context,
       protobufs::TransformationSequence* transformations);
 
@@ -43,4 +43,4 @@ class FuzzerPassAddUsefulConstructs : public FuzzerPass {
 }  // namespace fuzz
 }  // namespace spvtools
 
-#endif  // #define SOURCE_FUZZ_FUZZER_PASS_ADD_USEFUL_CONSTRUCTS_
+#endif  // SOURCE_FUZZ_FUZZER_PASS_ADD_USEFUL_CONSTRUCTS_

@@ -17,44 +17,69 @@
 
 #include <vector>
 
-#include "source/fuzz/fact_manager.h"
 #include "source/fuzz/protobufs/spirvfuzz_protobufs.h"
+#include "source/fuzz/transformation.h"
+#include "source/fuzz/transformation_context.h"
 #include "source/opt/ir_context.h"
 
 namespace spvtools {
 namespace fuzz {
-namespace transformation {
 
-// - |message.from_block| must be the id of a block a in the given module.
-// - |message.to_block| must be the id of a block b in the given module.
-// - if |message.break_condition_value| holds (does not hold) then
-//   OpConstantTrue (OpConstantFalse) must be present in the module
-// - |message.phi_ids| must be a list of ids that are all available at
-//   |message.from_block|
-// - a and b must be in the same function.
-// - b must be a merge block.
-// - a must end with an unconditional branch to some block c.
-// - replacing this branch with a conditional branch to b or c, with
-//   the boolean constant associated with |message.break_condition_value| as
-//   the condition, and the ids in |message.phi_ids| used to extend
-//   any OpPhi instructions at b as a result of the edge from a, must
-//   maintain validity of the module.
-bool IsApplicable(const protobufs::TransformationAddDeadBreak& message,
-                  opt::IRContext* context, const FactManager& fact_manager);
+class TransformationAddDeadBreak : public Transformation {
+ public:
+  explicit TransformationAddDeadBreak(
+      const protobufs::TransformationAddDeadBreak& message);
 
-// Replaces the terminator of a with a conditional branch to b or c.
-// The boolean constant associated with |message.break_condition_value| is used
-// as the condition, and the order of b and c is arranged such that control is
-// guaranteed to jump to c.
-void Apply(const protobufs::TransformationAddDeadBreak& message,
-           opt::IRContext* context, FactManager* fact_manager);
+  TransformationAddDeadBreak(uint32_t from_block, uint32_t to_block,
+                             bool break_condition_value,
+                             std::vector<uint32_t> phi_id);
 
-// Helper factory to create a transformation message.
-protobufs::TransformationAddDeadBreak MakeTransformationAddDeadBreak(
-    uint32_t from_block, uint32_t to_block, bool break_condition_value,
-    std::vector<uint32_t> phi_ids);
+  // - |message_.from_block| must be the id of a block a in the given module.
+  // - |message_.to_block| must be the id of a block b in the given module.
+  // - if |message_.break_condition_value| holds (does not hold) then
+  //   OpConstantTrue (OpConstantFalse) must be present in the module
+  // - |message_.phi_ids| must be a list of ids that are all available at
+  //   |message_.from_block|
+  // - a and b must be in the same function.
+  // - b must be a merge block.
+  // - a must end with an unconditional branch to some block c.
+  // - replacing this branch with a conditional branch to b or c, with
+  //   the boolean constant associated with |message_.break_condition_value| as
+  //   the condition, and the ids in |message_.phi_ids| used to extend
+  //   any OpPhi instructions at b as a result of the edge from a, must
+  //   maintain validity of the module.
+  //   In particular, the new branch must not lead to violations of the rule
+  //   that a use must be dominated by its definition.
+  bool IsApplicable(
+      opt::IRContext* ir_context,
+      const TransformationContext& transformation_context) const override;
 
-}  // namespace transformation
+  // Replaces the terminator of a with a conditional branch to b or c.
+  // The boolean constant associated with |message_.break_condition_value| is
+  // used as the condition, and the order of b and c is arranged such that
+  // control is guaranteed to jump to c.
+  void Apply(opt::IRContext* ir_context,
+             TransformationContext* transformation_context) const override;
+
+  protobufs::Transformation ToMessage() const override;
+
+ private:
+  // Returns true if and only if adding an edge from |bb_from| to
+  // |message_.to_block| respects structured control flow.
+  bool AddingBreakRespectsStructuredControlFlow(opt::IRContext* ir_context,
+                                                opt::BasicBlock* bb_from) const;
+
+  // Used by 'Apply' to actually apply the transformation to the module of
+  // interest, and by 'IsApplicable' to do a dry-run of the transformation on a
+  // cloned module, in order to check that the transformation leads to a valid
+  // module.  This is only invoked by 'IsApplicable' after certain basic
+  // applicability checks have been made, ensuring that the invocation of this
+  // method is legal.
+  void ApplyImpl(opt::IRContext* ir_context) const;
+
+  protobufs::TransformationAddDeadBreak message_;
+};
+
 }  // namespace fuzz
 }  // namespace spvtools
 

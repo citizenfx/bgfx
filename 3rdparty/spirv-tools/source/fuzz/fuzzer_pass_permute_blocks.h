@@ -24,7 +24,8 @@ namespace fuzz {
 // manner.
 class FuzzerPassPermuteBlocks : public FuzzerPass {
  public:
-  FuzzerPassPermuteBlocks(opt::IRContext* ir_context, FactManager* fact_manager,
+  FuzzerPassPermuteBlocks(opt::IRContext* ir_context,
+                          TransformationContext* transformation_context,
                           FuzzerContext* fuzzer_context,
                           protobufs::TransformationSequence* transformations);
 
@@ -36,4 +37,4 @@ class FuzzerPassPermuteBlocks : public FuzzerPass {
 }  // namespace fuzz
 }  // namespace spvtools
 
-#endif  // #define SOURCE_FUZZ_FUZZER_PASS_PERMUTE_BLOCKS_
+#endif  // SOURCE_FUZZ_FUZZER_PASS_PERMUTE_BLOCKS_

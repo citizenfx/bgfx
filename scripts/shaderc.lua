@@ -1,5 +1,5 @@
 --
--- Copyright 2010-2019 Branimir Karadzic. All rights reserved.
+-- Copyright 2010-2020 Branimir Karadzic. All rights reserved.
 -- License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
 --
 
@@ -108,7 +108,6 @@ project "spirv-opt"
 		path.join(SPIRV_TOOLS, "source/val/validate_composites.cpp"),
 		path.join(SPIRV_TOOLS, "source/val/validate_constants.cpp"),
 		path.join(SPIRV_TOOLS, "source/val/validate_conversion.cpp"),
-		path.join(SPIRV_TOOLS, "source/val/validate_datarules.cpp"),
 		path.join(SPIRV_TOOLS, "source/val/validate_debug.cpp"),
 		path.join(SPIRV_TOOLS, "source/val/validate_decorations.cpp"),
 		path.join(SPIRV_TOOLS, "source/val/validate_derivatives.cpp"),
@@ -129,6 +128,7 @@ project "spirv-opt"
 		path.join(SPIRV_TOOLS, "source/val/validate_non_uniform.cpp"),
 		path.join(SPIRV_TOOLS, "source/val/validate_primitives.cpp"),
 		path.join(SPIRV_TOOLS, "source/val/validate_scopes.cpp"),
+		path.join(SPIRV_TOOLS, "source/val/validate_small_type_uses.cpp"),
 		path.join(SPIRV_TOOLS, "source/val/validate_type.cpp"),
 		path.join(SPIRV_TOOLS, "source/val/validation_state.cpp"),
 	}
@@ -597,6 +597,7 @@ project "shaderc"
 		path.join(BIMG_DIR, "include"),
 		path.join(BGFX_DIR, "include"),
 
+		path.join(BGFX_DIR, "3rdparty/webgpu/include"),
 		path.join(BGFX_DIR, "3rdparty/dxsdk/include"),
 
 		FCPP_DIR,
@@ -625,7 +626,7 @@ project "shaderc"
 	files {
 		path.join(BGFX_DIR, "tools/shaderc/**.cpp"),
 		path.join(BGFX_DIR, "tools/shaderc/**.h"),
-		path.join(BGFX_DIR, "src/vertexdecl.**"),
+		path.join(BGFX_DIR, "src/vertexlayout.**"),
 		path.join(BGFX_DIR, "src/shader_spirv.**"),
 	}
 

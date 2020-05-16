@@ -93,8 +93,7 @@ BasicBlock* DeadBranchElimPass::GetParentBlock(uint32_t id) {
 
 bool DeadBranchElimPass::MarkLiveBlocks(
     Function* func, std::unordered_set<BasicBlock*>* live_blocks) {
-  StructuredCFGAnalysis* cfgAnalysis = context()->GetStructuredCFGAnalysis();
-
+  std::vector<std::pair<BasicBlock*, uint32_t>> conditions_to_simplify;
   std::unordered_set<BasicBlock*> blocks_with_backedge;
   std::vector<BasicBlock*> stack;
   stack.push_back(&*func->begin());
@@ -168,45 +167,7 @@ bool DeadBranchElimPass::MarkLiveBlocks(
     }
 
     if (simplify) {
-      modified = true;
-      // Replace branch with a simpler branch.
-      // Fix up the merge instruction if it is a selection merge.
-      Instruction* mergeInst = block->GetMergeInst();
-      if (mergeInst && mergeInst->opcode() == SpvOpSelectionMerge) {
-        if (mergeInst->NextNode()->opcode() == SpvOpSwitch &&
-            SwitchHasNestedBreak(block->id())) {
-          // We have to keep the switch because it has a nest break, so we
-          // remove all cases except for the live one.
-          Instruction::OperandList new_operands;
-          new_operands.push_back(terminator->GetInOperand(0));
-          new_operands.push_back({SPV_OPERAND_TYPE_ID, {live_lab_id}});
-          terminator->SetInOperands(std::move(new_operands));
-          context()->UpdateDefUse(terminator);
-        } else {
-          // Check if the merge instruction is still needed because of a
-          // non-nested break from the construct.  Move the merge instruction if
-          // it is still needed.
-          Instruction* first_break = FindFirstExitFromSelectionMerge(
-              live_lab_id, mergeInst->GetSingleWordInOperand(0),
-              cfgAnalysis->LoopMergeBlock(live_lab_id),
-              cfgAnalysis->LoopContinueBlock(live_lab_id),
-              cfgAnalysis->SwitchMergeBlock(live_lab_id));
-
-          AddBranch(live_lab_id, block);
-          context()->KillInst(terminator);
-          if (first_break == nullptr) {
-            context()->KillInst(mergeInst);
-          } else {
-            mergeInst->RemoveFromList();
-            first_break->InsertBefore(std::unique_ptr<Instruction>(mergeInst));
-            context()->set_instr_block(mergeInst,
-                                       context()->get_instr_block(first_break));
-          }
-        }
-      } else {
-        AddBranch(live_lab_id, block);
-        context()->KillInst(terminator);
-      }
+      conditions_to_simplify.push_back({block, live_lab_id});
       stack.push_back(GetParentBlock(live_lab_id));
     } else {
       // All successors are live.
@@ -217,7 +178,64 @@ bool DeadBranchElimPass::MarkLiveBlocks(
     }
   }
 
+  // Traverse |conditions_to_simplify| in reverse order.  This is done so that
+  // we simplify nested constructs before simplifying the constructs that
+  // contain them.
+  for (auto b = conditions_to_simplify.rbegin();
+       b != conditions_to_simplify.rend(); ++b) {
+    modified |= SimplifyBranch(b->first, b->second);
+  }
+
   return modified;
+}
+
+bool DeadBranchElimPass::SimplifyBranch(BasicBlock* block,
+                                        uint32_t live_lab_id) {
+  Instruction* merge_inst = block->GetMergeInst();
+  Instruction* terminator = block->terminator();
+  if (merge_inst && merge_inst->opcode() == SpvOpSelectionMerge) {
+    if (merge_inst->NextNode()->opcode() == SpvOpSwitch &&
+        SwitchHasNestedBreak(block->id())) {
+      if (terminator->NumInOperands() == 2) {
+        // We cannot remove the branch, and it already has a single case, so no
+        // work to do.
+        return false;
+      }
+      // We have to keep the switch because it has a nest break, so we
+      // remove all cases except for the live one.
+      Instruction::OperandList new_operands;
+      new_operands.push_back(terminator->GetInOperand(0));
+      new_operands.push_back({SPV_OPERAND_TYPE_ID, {live_lab_id}});
+      terminator->SetInOperands(move(new_operands));
+      context()->UpdateDefUse(terminator);
+    } else {
+      // Check if the merge instruction is still needed because of a
+      // non-nested break from the construct.  Move the merge instruction if
+      // it is still needed.
+      StructuredCFGAnalysis* cfg_analysis =
+          context()->GetStructuredCFGAnalysis();
+      Instruction* first_break = FindFirstExitFromSelectionMerge(
+          live_lab_id, merge_inst->GetSingleWordInOperand(0),
+          cfg_analysis->LoopMergeBlock(live_lab_id),
+          cfg_analysis->LoopContinueBlock(live_lab_id),
+          cfg_analysis->SwitchMergeBlock(live_lab_id));
+
+      AddBranch(live_lab_id, block);
+      context()->KillInst(terminator);
+      if (first_break == nullptr) {
+        context()->KillInst(merge_inst);
+      } else {
+        merge_inst->RemoveFromList();
+        first_break->InsertBefore(std::unique_ptr<Instruction>(merge_inst));
+        context()->set_instr_block(merge_inst,
+                                   context()->get_instr_block(first_break));
+      }
+    }
+  } else {
+    AddBranch(live_lab_id, block);
+    context()->KillInst(terminator);
+  }
+  return true;
 }
 
 void DeadBranchElimPass::MarkUnreachableStructuredTargets(
@@ -630,7 +648,8 @@ bool DeadBranchElimPass::SwitchHasNestedBreak(uint32_t switch_header_id) {
         if (bb->id() == switch_header_id) {
           return true;
         }
-        return (cfg_analysis->ContainingConstruct(inst) == switch_header_id);
+        return (cfg_analysis->ContainingConstruct(inst) == switch_header_id &&
+                bb->GetMergeInst() == nullptr);
       });
 }
 

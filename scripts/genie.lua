@@ -1,5 +1,5 @@
 --
--- Copyright 2010-2019 Branimir Karadzic. All rights reserved.
+-- Copyright 2010-2020 Branimir Karadzic. All rights reserved.
 -- License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
 --
 
@@ -48,6 +48,11 @@ newoption {
 	description = "Enable building examples.",
 }
 
+newoption {
+	trigger = "with-webgpu",
+	description = "Enable webgpu experimental renderer.",
+}
+
 newaction {
 	trigger = "idl",
 	description = "Generate bgfx interface source code",
@@ -66,6 +71,47 @@ newaction {
 		generate("temp.bgfx.idl.inl", "../src/bgfx.idl.inl",        "\t")
 		generate("temp.defines.h",    "../include/bgfx/defines.h",  "\t")
 
+		do
+			local csgen = require "bindings-cs"
+			csgen.write(csgen.gen(), "../bindings/cs/bgfx.cs")
+			csgen.write(csgen.gen_dllname(), "../bindings/cs/bgfx_dllname.cs")
+
+			local dgen = require "bindings-d"
+			dgen.write(dgen.gen_types(), "../bindings/d/types.d")
+			dgen.write(dgen.gen_funcs(), "../bindings/d/funcs.d")
+		end
+
+		os.exit()
+	end
+}
+
+newaction {
+	trigger = "version",
+	description = "Generate bgfx version.h",
+	execute = function ()
+
+		local f = io.popen("git rev-list --count HEAD")
+		local rev = string.match(f:read("*a"), ".*%S")
+		f:close()
+		f = io.popen("git log --format=format:%H -1")
+		local sha1 = f:read("*a")
+		f:close()
+		io.output("../src/version.h")
+		io.write("/*\n")
+		io.write(" * Copyright 2011-2020 Branimir Karadzic. All rights reserved.\n")
+		io.write(" * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause\n")
+		io.write(" */\n")
+		io.write("\n")
+		io.write("/*\n")
+		io.write(" *\n")
+		io.write(" * AUTO GENERATED! DO NOT EDIT!\n")
+		io.write(" *\n")
+		io.write(" */\n")
+		io.write("\n")
+		io.write("#define BGFX_REV_NUMBER " .. rev .. "\n")
+		io.write("#define BGFX_REV_SHA1   \"" .. sha1 .. "\"\n")
+		io.close()
+
 		os.exit()
 	end
 }
@@ -76,7 +122,7 @@ solution "bgfx"
 		"Release",
 	}
 
-	if _ACTION:match "xcode*" then
+	if _ACTION ~= nil and _ACTION:match "xcode*" then
 		platforms {
 			"Universal",
 		}
@@ -110,15 +156,32 @@ end
 if not os.isdir(BX_DIR) or not os.isdir(BIMG_DIR) then
 
 	if not os.isdir(BX_DIR) then
-		print("bx not found at " .. BX_DIR)
+		print("bx not found at \"" .. BX_DIR .. "\". git clone https://github.com/bkaradzic/bx?")
 	end
 
 	if not os.isdir(BIMG_DIR) then
-		print("bimg not found at " .. BIMG_DIR)
+		print("bimg not found at \"" .. BIMG_DIR .. "\". git clone https://github.com/bkaradzic/bimg?")
 	end
 
 	print("For more info see: https://bkaradzic.github.io/bgfx/build.html")
 	os.exit()
+end
+
+if _OPTIONS["with-webgpu"] then
+	DAWN_DIR = os.getenv("DAWN_DIR")
+
+	if not DAWN_DIR then
+		DAWN_DIR = path.getabsolute(path.join(BGFX_DIR, "../dawn"))
+	end
+
+	if not os.isdir(DAWN_DIR) then
+		print("Dawn not found at \"" .. DAWN_DIR .. "\". git clone https://dawn.googlesource.com/dawn?")
+
+		print("For more info see: https://bkaradzic.github.io/bgfx/build.html")
+		os.exit()
+	end
+
+	_OPTIONS["with-windows"] = "10.0"
 end
 
 dofile (path.join(BX_DIR, "scripts/toolchain.lua"))
@@ -165,13 +228,17 @@ function exampleProjectDefaults()
 	}
 
 	links {
-		"example-common",
 		"example-glue",
+		"example-common",
 		"bgfx",
 		"bimg_decode",
 		"bimg",
 		"bx",
 	}
+
+	if _OPTIONS["with-webgpu"] then
+		usesWebGPU()
+	end
 
 	if _OPTIONS["with-sdl"] then
 		defines { "ENTRY_CONFIG_USE_SDL=1" }
@@ -297,20 +364,24 @@ function exampleProjectDefaults()
 
 	configuration { "asmjs" }
 		kind "ConsoleApp"
-		targetextension ".bc"
 
-	configuration { "linux-* or freebsd", "not linux-steamlink" }
+		linkoptions {
+			"-s TOTAL_MEMORY=256MB",
+			"--memory-init-file 1",
+		}
+
+		removeflags {
+			"OptimizeSpeed",
+		}
+
+		flags {
+			"Optimize"
+		}
+
+	configuration { "linux-* or freebsd" }
 		links {
 			"X11",
 			"GL",
-			"pthread",
-		}
-
-	configuration { "linux-steamlink" }
-		links {
-			"EGL",
-			"GLESv2",
-			"SDL2",
 			"pthread",
 		}
 
@@ -489,6 +560,7 @@ or _OPTIONS["with-combined-examples"] then
 		, "38-bloom"
 		, "39-assao"
 		, "40-svt"
+		, "41-tess"
 		)
 
 	-- C99 source doesn't compile under WinRT settings
@@ -508,4 +580,5 @@ if _OPTIONS["with-tools"] then
 	dofile "texturec.lua"
 	dofile "texturev.lua"
 	dofile "geometryc.lua"
+	dofile "geometryv.lua"
 end

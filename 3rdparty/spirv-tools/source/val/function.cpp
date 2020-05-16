@@ -14,9 +14,8 @@
 
 #include "source/val/function.h"
 
-#include <cassert>
-
 #include <algorithm>
+#include <cassert>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -99,7 +98,7 @@ spv_result_t Function::RegisterLoopMerge(uint32_t merge_id,
 spv_result_t Function::RegisterSelectionMerge(uint32_t merge_id) {
   RegisterBlock(merge_id, false);
   BasicBlock& merge_block = blocks_.at(merge_id);
-  current_block_->set_type(kBlockTypeHeader);
+  current_block_->set_type(kBlockTypeSelection);
   merge_block.set_type(kBlockTypeMerge);
   merge_block_header_[&merge_block] = current_block_;
 
@@ -317,13 +316,10 @@ int Function::GetBlockDepth(BasicBlock* bb) {
   if (!bb_dom || bb == bb_dom) {
     // This block has no dominator, so it's at depth 0.
     block_depth_[bb] = 0;
-  } else if (bb->is_type(kBlockTypeMerge)) {
-    // If this is a merge block, its depth is equal to the block before
-    // branching.
-    BasicBlock* header = merge_block_header_[bb];
-    assert(header);
-    block_depth_[bb] = GetBlockDepth(header);
   } else if (bb->is_type(kBlockTypeContinue)) {
+    // This rule must precede the rule for merge blocks in order to set up
+    // depths correctly. If a block is both a merge and continue then the merge
+    // is nested within the continue's loop (or the graph is incorrect).
     // The depth of the continue block entry point is 1 + loop header depth.
     Construct* continue_construct =
         entry_block_to_construct_[std::make_pair(bb, ConstructType::kContinue)];
@@ -341,7 +337,13 @@ int Function::GetBlockDepth(BasicBlock* bb) {
     } else {
       block_depth_[bb] = 1 + GetBlockDepth(loop_header);
     }
-  } else if (bb_dom->is_type(kBlockTypeHeader) ||
+  } else if (bb->is_type(kBlockTypeMerge)) {
+    // If this is a merge block, its depth is equal to the block before
+    // branching.
+    BasicBlock* header = merge_block_header_[bb];
+    assert(header);
+    block_depth_[bb] = GetBlockDepth(header);
+  } else if (bb_dom->is_type(kBlockTypeSelection) ||
              bb_dom->is_type(kBlockTypeLoop)) {
     // The dominator of the given block is a header block. So, the nesting
     // depth of this block is: 1 + nesting depth of the header.

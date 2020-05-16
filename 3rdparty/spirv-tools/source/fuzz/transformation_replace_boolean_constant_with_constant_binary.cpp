@@ -21,7 +21,6 @@
 
 namespace spvtools {
 namespace fuzz {
-namespace transformation {
 
 namespace {
 
@@ -110,19 +109,35 @@ bool unsigned_int_binop_evaluates_to(T lhs, T rhs, SpvOp binop,
 
 }  // namespace
 
-bool IsApplicable(
-    const protobufs::TransformationReplaceBooleanConstantWithConstantBinary&
-        message,
-    opt::IRContext* context, const FactManager& /*unused*/) {
+TransformationReplaceBooleanConstantWithConstantBinary::
+    TransformationReplaceBooleanConstantWithConstantBinary(
+        const spvtools::fuzz::protobufs::
+            TransformationReplaceBooleanConstantWithConstantBinary& message)
+    : message_(message) {}
+
+TransformationReplaceBooleanConstantWithConstantBinary::
+    TransformationReplaceBooleanConstantWithConstantBinary(
+        const protobufs::IdUseDescriptor& id_use_descriptor, uint32_t lhs_id,
+        uint32_t rhs_id, SpvOp comparison_opcode,
+        uint32_t fresh_id_for_binary_operation) {
+  *message_.mutable_id_use_descriptor() = id_use_descriptor;
+  message_.set_lhs_id(lhs_id);
+  message_.set_rhs_id(rhs_id);
+  message_.set_opcode(comparison_opcode);
+  message_.set_fresh_id_for_binary_operation(fresh_id_for_binary_operation);
+}
+
+bool TransformationReplaceBooleanConstantWithConstantBinary::IsApplicable(
+    opt::IRContext* ir_context, const TransformationContext& /*unused*/) const {
   // The id for the binary result must be fresh
-  if (!fuzzerutil::IsFreshId(context,
-                             message.fresh_id_for_binary_operation())) {
+  if (!fuzzerutil::IsFreshId(ir_context,
+                             message_.fresh_id_for_binary_operation())) {
     return false;
   }
 
   // The used id must be for a boolean constant
-  auto boolean_constant = context->get_def_use_mgr()->GetDef(
-      message.id_use_descriptor().id_of_interest());
+  auto boolean_constant = ir_context->get_def_use_mgr()->GetDef(
+      message_.id_use_descriptor().id_of_interest());
   if (!boolean_constant) {
     return false;
   }
@@ -132,7 +147,8 @@ bool IsApplicable(
   }
 
   // The left-hand-side id must correspond to a constant instruction.
-  auto lhs_constant_inst = context->get_def_use_mgr()->GetDef(message.lhs_id());
+  auto lhs_constant_inst =
+      ir_context->get_def_use_mgr()->GetDef(message_.lhs_id());
   if (!lhs_constant_inst) {
     return false;
   }
@@ -141,7 +157,8 @@ bool IsApplicable(
   }
 
   // The right-hand-side id must correspond to a constant instruction.
-  auto rhs_constant_inst = context->get_def_use_mgr()->GetDef(message.rhs_id());
+  auto rhs_constant_inst =
+      ir_context->get_def_use_mgr()->GetDef(message_.rhs_id());
   if (!rhs_constant_inst) {
     return false;
   }
@@ -156,12 +173,12 @@ bool IsApplicable(
 
   // The expression 'LHS opcode RHS' must evaluate to the boolean constant.
   auto lhs_constant =
-      context->get_constant_mgr()->FindDeclaredConstant(message.lhs_id());
+      ir_context->get_constant_mgr()->FindDeclaredConstant(message_.lhs_id());
   auto rhs_constant =
-      context->get_constant_mgr()->FindDeclaredConstant(message.rhs_id());
+      ir_context->get_constant_mgr()->FindDeclaredConstant(message_.rhs_id());
   bool expected_result = (boolean_constant->opcode() == SpvOpConstantTrue);
 
-  const SpvOp binary_opcode = static_cast<SpvOp>(message.opcode());
+  const auto binary_opcode = static_cast<SpvOp>(message_.opcode());
 
   // We consider the floating point, signed and unsigned integer cases
   // separately.  In each case the logic is very similar.
@@ -220,25 +237,50 @@ bool IsApplicable(
   }
 
   // The id use descriptor must identify some instruction
-  return transformation::FindInstruction(message.id_use_descriptor(),
-                                         context) != nullptr;
+  auto instruction =
+      FindInstructionContainingUse(message_.id_use_descriptor(), ir_context);
+  if (instruction == nullptr) {
+    return false;
+  }
+
+  switch (instruction->opcode()) {
+    case SpvOpPhi:
+      // The instruction must not be an OpPhi, as we cannot insert a binary
+      // operator instruction before an OpPhi.
+      // TODO(https://github.com/KhronosGroup/SPIRV-Tools/issues/2902): there is
+      //  scope for being less conservative.
+      return false;
+    case SpvOpVariable:
+      // The instruction must not be an OpVariable, because (a) we cannot insert
+      // a binary operator before an OpVariable, but in any case (b) the
+      // constant we would be replacing is the initializer constant of the
+      // OpVariable, and this cannot be the result of a binary operation.
+      return false;
+    default:
+      return true;
+  }
 }
 
-opt::Instruction* Apply(
-    const protobufs::TransformationReplaceBooleanConstantWithConstantBinary&
-        message,
-    opt::IRContext* context, FactManager* /*unused*/) {
+void TransformationReplaceBooleanConstantWithConstantBinary::Apply(
+    opt::IRContext* ir_context,
+    TransformationContext* transformation_context) const {
+  ApplyWithResult(ir_context, transformation_context);
+}
+
+opt::Instruction*
+TransformationReplaceBooleanConstantWithConstantBinary::ApplyWithResult(
+    opt::IRContext* ir_context, TransformationContext* /*unused*/) const {
   opt::analysis::Bool bool_type;
   opt::Instruction::OperandList operands = {
-      {SPV_OPERAND_TYPE_ID, {message.lhs_id()}},
-      {SPV_OPERAND_TYPE_ID, {message.rhs_id()}}};
+      {SPV_OPERAND_TYPE_ID, {message_.lhs_id()}},
+      {SPV_OPERAND_TYPE_ID, {message_.rhs_id()}}};
   auto binary_instruction = MakeUnique<opt::Instruction>(
-      context, static_cast<SpvOp>(message.opcode()),
-      context->get_type_mgr()->GetId(&bool_type),
-      message.fresh_id_for_binary_operation(), operands);
+      ir_context, static_cast<SpvOp>(message_.opcode()),
+      ir_context->get_type_mgr()->GetId(&bool_type),
+      message_.fresh_id_for_binary_operation(), operands);
   opt::Instruction* result = binary_instruction.get();
   auto instruction_containing_constant_use =
-      transformation::FindInstruction(message.id_use_descriptor(), context);
+      FindInstructionContainingUse(message_.id_use_descriptor(), ir_context);
 
   // We want to insert the new instruction before the instruction that contains
   // the use of the boolean, but we need to go backwards one more instruction if
@@ -255,28 +297,21 @@ opt::Instruction* Apply(
   instruction_before_which_to_insert->InsertBefore(
       std::move(binary_instruction));
   instruction_containing_constant_use->SetInOperand(
-      message.id_use_descriptor().in_operand_index(),
-      {message.fresh_id_for_binary_operation()});
-  fuzzerutil::UpdateModuleIdBound(context,
-                                  message.fresh_id_for_binary_operation());
-  context->InvalidateAnalysesExceptFor(opt::IRContext::Analysis::kAnalysisNone);
+      message_.id_use_descriptor().in_operand_index(),
+      {message_.fresh_id_for_binary_operation()});
+  fuzzerutil::UpdateModuleIdBound(ir_context,
+                                  message_.fresh_id_for_binary_operation());
+  ir_context->InvalidateAnalysesExceptFor(
+      opt::IRContext::Analysis::kAnalysisNone);
   return result;
 }
 
-protobufs::TransformationReplaceBooleanConstantWithConstantBinary
-MakeTransformationReplaceBooleanConstantWithConstantBinary(
-    const protobufs::IdUseDescriptor& id_use_descriptor, uint32_t lhs_id,
-    uint32_t rhs_id, SpvOp comparison_opcode,
-    uint32_t fresh_id_for_binary_operation) {
-  protobufs::TransformationReplaceBooleanConstantWithConstantBinary result;
-  *result.mutable_id_use_descriptor() = id_use_descriptor;
-  result.set_lhs_id(lhs_id);
-  result.set_rhs_id(rhs_id);
-  result.set_opcode(comparison_opcode);
-  result.set_fresh_id_for_binary_operation(fresh_id_for_binary_operation);
+protobufs::Transformation
+TransformationReplaceBooleanConstantWithConstantBinary::ToMessage() const {
+  protobufs::Transformation result;
+  *result.mutable_replace_boolean_constant_with_constant_binary() = message_;
   return result;
 }
 
-}  // namespace transformation
 }  // namespace fuzz
 }  // namespace spvtools

@@ -1,5 +1,5 @@
 --
--- Copyright 2010-2019 Branimir Karadzic. All rights reserved.
+-- Copyright 2010-2020 Branimir Karadzic. All rights reserved.
 -- License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
 --
 
@@ -64,6 +64,11 @@ function bgfxProjectBase(_kind, _defines)
 			buildoptions {
 				"-fPIC",
 			}
+			links {
+				"X11",
+				"GL",
+				"pthread",
+			}
 
 		configuration {}
 	end
@@ -116,6 +121,7 @@ function bgfxProjectBase(_kind, _defines)
 		}
 
 	configuration { "osx" }
+		buildoptions { "-x objective-c++" }  -- additional build option for osx
 		linkoptions {
 			"-framework Cocoa",
 			"-framework QuartzCore",
@@ -124,16 +130,10 @@ function bgfxProjectBase(_kind, _defines)
 			"-weak_framework MetalKit",
 		}
 
-	configuration { "not linux-steamlink", "not NX32", "not NX64" }
+	configuration { "not NX32", "not NX64" }
 		includedirs {
-			-- steamlink has EGL headers modified...
 			-- NX has EGL headers modified...
 			path.join(BGFX_DIR, "3rdparty/khronos"),
-		}
-
-	configuration { "linux-steamlink" }
-		defines {
-			"EGL_API_FB",
 		}
 
 	configuration {}
@@ -163,6 +163,42 @@ function bgfxProjectBase(_kind, _defines)
 		path.join(BGFX_DIR, "src/renderer_nvn.h"),
 	})
 
+	if _OPTIONS["with-webgpu"] then
+		defines {
+			"BGFX_CONFIG_RENDERER_WEBGPU=1",
+		}
+
+		local generator = "out/VS2019"
+
+		configuration { "asmjs" }
+			defines {
+				"BGFX_CONFIG_RENDERER_OPENGL=0",
+				"BGFX_CONFIG_RENDERER_OPENGLES=0",
+			}
+
+		configuration { "not asmjs" }
+			includedirs {
+				path.join(DAWN_DIR, "src"),
+				path.join(DAWN_DIR, "src/include"),
+				path.join(DAWN_DIR, "third_party/vulkan-headers/include"),
+				path.join(DAWN_DIR, generator, "gen/src"),
+				path.join(DAWN_DIR, generator, "gen/src/include"),
+			}
+
+		configuration { "vs*" }
+			defines {
+				"NTDDI_VERSION=NTDDI_WIN10_RS2",
+
+				-- We can't say `=_WIN32_WINNT_WIN10` here because some files do
+				-- `#if WINVER < 0x0600` without including windows.h before,
+				-- and then _WIN32_WINNT_WIN10 isn't yet known to be 0x0A00.
+				"_WIN32_WINNT=0x0A00",
+				"WINVER=0x0A00",
+			}
+
+		configuration {}
+    end
+
 	if _OPTIONS["with-amalgamated"] then
 		excludes {
 			path.join(BGFX_DIR, "src/bgfx.cpp"),
@@ -175,7 +211,7 @@ function bgfxProjectBase(_kind, _defines)
 			path.join(BGFX_DIR, "src/renderer_**.cpp"),
 			path.join(BGFX_DIR, "src/shader**.cpp"),
 			path.join(BGFX_DIR, "src/topology.cpp"),
-			path.join(BGFX_DIR, "src/vertexdecl.cpp"),
+			path.join(BGFX_DIR, "src/vertexlayout.cpp"),
 		}
 
 		configuration { "xcode* or osx or ios*" }
@@ -233,4 +269,60 @@ function bgfxProject(_name, _kind, _defines)
 		bgfxProjectBase(_kind, _defines)
 
 		copyLib()
+end
+
+if _OPTIONS["with-webgpu"] then
+	function usesWebGPU()
+		configuration { "asmjs" }
+			linkoptions {
+				"-s USE_WEBGPU=1",
+			}
+
+		configuration { "not asmjs" }
+			--local generator = "out/Default"
+			local generator = "out/VS2019"
+
+			includedirs {
+				path.join(DAWN_DIR, "src"),
+				path.join(DAWN_DIR, "src/include"),
+				path.join(DAWN_DIR, generator, "gen/src"),
+				path.join(DAWN_DIR, generator, "gen/src/include"),
+			}
+
+			libdirs {
+				path.join(DAWN_DIR, generator),
+				path.join(DAWN_DIR, generator, "lib/Debug"),
+			}
+
+			files {
+				path.join(DAWN_DIR, generator, "gen/src/dawn/webgpu_cpp.cpp"),
+			}
+
+			links {
+				-- shared
+				"dawn_proc_shared",
+				"dawn_native_shared",
+				"shaderc_spvc_shared",
+				-- static
+				--"dawn_common",
+				--"dawn_proc",
+				--"dawn_native",
+				--"dawn_platform",
+				------"shaderc",
+				--"shaderc_spvc",
+				--"SPIRV-tools",
+				--"SPIRV-tools-opt",
+				--"spirv-cross-cored",
+				--"spirv-cross-hlsld",
+				--"spirv-cross-glsld",
+				--"spirv-cross-msld",
+				--"spirv-cross-reflectd",
+			}
+
+			removeflags {
+				"FatalWarnings",
+			}
+
+		configuration {}
+	end
 end

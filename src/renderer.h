@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2020 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -232,7 +232,7 @@ namespace bgfx
 					{
 						Matrix4 modelView;
 						const Matrix4& model = frameCache.m_matrixCache.m_cache[_draw.m_startMatrix];
-						bx::float4x4_mul(&modelView.un.f4x4
+						bx::model4x4_mul(&modelView.un.f4x4
 							, &model.un.f4x4
 							, &m_view[_view].un.f4x4
 							);
@@ -248,7 +248,7 @@ namespace bgfx
 					{
 						Matrix4 modelViewProj;
 						const Matrix4& model = frameCache.m_matrixCache.m_cache[_draw.m_startMatrix];
-						bx::float4x4_mul(&modelViewProj.un.f4x4
+						bx::model4x4_mul_viewproj4x4(&modelViewProj.un.f4x4
 							, &model.un.f4x4
 							, &m_viewProj[_view].un.f4x4
 							);
@@ -499,7 +499,7 @@ namespace bgfx
 			if (m_enabled)
 			{
 				ViewStats& viewStats = m_frame->m_perfStats.viewStats[m_numViews];
-				viewStats.cpuTimeElapsed = -bx::getHPCounter();
+				viewStats.cpuTimeBegin = bx::getHPCounter();
 
 				m_queryIdx = m_gpuTimer.begin(_view);
 
@@ -521,8 +521,9 @@ namespace bgfx
 				ViewStats& viewStats = m_frame->m_perfStats.viewStats[m_numViews];
 				const typename Ty::Result& result = m_gpuTimer.m_result[viewStats.view];
 
-				viewStats.cpuTimeElapsed += bx::getHPCounter();
-				viewStats.gpuTimeElapsed = result.m_end - result.m_begin;
+				viewStats.cpuTimeEnd = bx::getHPCounter();
+				viewStats.gpuTimeBegin = result.m_begin;
+				viewStats.gpuTimeEnd = result.m_end;
 
 				++m_numViews;
 				m_queryIdx = UINT32_MAX;

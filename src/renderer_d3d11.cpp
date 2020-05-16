@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2020 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -348,19 +348,19 @@ namespace bgfx { namespace d3d11
 	};
 	BX_STATIC_ASSERT(AttribType::Count == BX_COUNTOF(s_attribType) );
 
-	static D3D11_INPUT_ELEMENT_DESC* fillVertexDecl(uint8_t _stream, D3D11_INPUT_ELEMENT_DESC* _out, const VertexDecl& _decl)
+	static D3D11_INPUT_ELEMENT_DESC* fillVertexLayout(uint8_t _stream, D3D11_INPUT_ELEMENT_DESC* _out, const VertexLayout& _layout)
 	{
 		D3D11_INPUT_ELEMENT_DESC* elem = _out;
 
 		for (uint32_t attr = 0; attr < Attrib::Count; ++attr)
 		{
-			if (UINT16_MAX != _decl.m_attributes[attr])
+			if (UINT16_MAX != _layout.m_attributes[attr])
 			{
 				bx::memCopy(elem, &s_attrib[attr], sizeof(D3D11_INPUT_ELEMENT_DESC) );
 
 				elem->InputSlot = _stream;
 
-				if (0 == _decl.m_attributes[attr])
+				if (0 == _layout.m_attributes[attr])
 				{
 					elem->AlignedByteOffset = 0;
 				}
@@ -370,9 +370,9 @@ namespace bgfx { namespace d3d11
 					AttribType::Enum type;
 					bool normalized;
 					bool asInt;
-					_decl.decode(Attrib::Enum(attr), num, type, normalized, asInt);
+					_layout.decode(Attrib::Enum(attr), num, type, normalized, asInt);
 					elem->Format = s_attribType[type][num-1][normalized];
-					elem->AlignedByteOffset = _decl.m_offset[attr];
+					elem->AlignedByteOffset = _layout.m_offset[attr];
 				}
 
 				++elem;
@@ -1688,20 +1688,20 @@ namespace bgfx { namespace d3d11
 			m_indexBuffers[_handle.idx].destroy();
 		}
 
-		void createVertexDecl(VertexDeclHandle _handle, const VertexDecl& _decl) override
+		void createVertexLayout(VertexLayoutHandle _handle, const VertexLayout& _layout) override
 		{
-			VertexDecl& decl = m_vertexDecls[_handle.idx];
-			bx::memCopy(&decl, &_decl, sizeof(VertexDecl) );
-			dump(decl);
+			VertexLayout& layout = m_vertexLayouts[_handle.idx];
+			bx::memCopy(&layout, &_layout, sizeof(VertexLayout) );
+			dump(layout);
 		}
 
-		void destroyVertexDecl(VertexDeclHandle /*_handle*/) override
+		void destroyVertexLayout(VertexLayoutHandle /*_handle*/) override
 		{
 		}
 
-		void createVertexBuffer(VertexBufferHandle _handle, const Memory* _mem, VertexDeclHandle _declHandle, uint16_t _flags) override
+		void createVertexBuffer(VertexBufferHandle _handle, const Memory* _mem, VertexLayoutHandle _layoutHandle, uint16_t _flags) override
 		{
-			m_vertexBuffers[_handle.idx].create(_mem->size, _mem->data, _declHandle, _flags);
+			m_vertexBuffers[_handle.idx].create(_mem->size, _mem->data, _layoutHandle, _flags);
 		}
 
 		void destroyVertexBuffer(VertexBufferHandle _handle) override
@@ -1726,8 +1726,8 @@ namespace bgfx { namespace d3d11
 
 		void createDynamicVertexBuffer(VertexBufferHandle _handle, uint32_t _size, uint16_t _flags) override
 		{
-			VertexDeclHandle decl = BGFX_INVALID_HANDLE;
-			m_vertexBuffers[_handle.idx].create(_size, NULL, decl, _flags);
+			VertexLayoutHandle layoutHandle = BGFX_INVALID_HANDLE;
+			m_vertexBuffers[_handle.idx].create(_size, NULL, layoutHandle, _flags);
 		}
 
 		void updateDynamicVertexBuffer(VertexBufferHandle _handle, uint32_t _offset, uint32_t _size, const Memory* _mem) override
@@ -1903,7 +1903,7 @@ namespace bgfx { namespace d3d11
 				BX_FREE(g_allocator, m_uniforms[_handle.idx]);
 			}
 
-			uint32_t size = BX_ALIGN_16(g_uniformTypeSize[_type]*_num);
+			const uint32_t size = bx::alignUp(g_uniformTypeSize[_type]*_num, 16);
 			void* data = BX_ALLOC(g_allocator, size);
 			bx::memSet(data, 0, size);
 			m_uniforms[_handle.idx] = data;
@@ -2095,11 +2095,11 @@ namespace bgfx { namespace d3d11
 			deviceCtx->PSSetConstantBuffers(0, 1, &program.m_fsh->m_buffer);
 
 			VertexBufferD3D11& vb = m_vertexBuffers[_blitter.m_vb->handle.idx];
-			VertexDecl& vertexDecl = m_vertexDecls[_blitter.m_vb->decl.idx];
-			uint32_t stride = vertexDecl.m_stride;
+			VertexLayout& layout  = m_vertexLayouts[_blitter.m_vb->layoutHandle.idx];
+			uint32_t stride = layout.m_stride;
 			uint32_t offset = 0;
 			deviceCtx->IASetVertexBuffers(0, 1, &vb.m_ptr, &stride, &offset);
-			setInputLayout(vertexDecl, program, 0);
+			setInputLayout(layout, program, 0);
 
 			IndexBufferD3D11& ib = m_indexBuffers[_blitter.m_ib->handle.idx];
 			deviceCtx->IASetIndexBuffer(ib.m_ptr, DXGI_FORMAT_R16_UINT, 0);
@@ -2124,7 +2124,7 @@ namespace bgfx { namespace d3d11
 				ID3D11DeviceContext* deviceCtx = m_deviceCtx;
 
 				m_indexBuffers [_blitter.m_ib->handle.idx].update(0, _numIndices*2, _blitter.m_ib->data, true);
-				m_vertexBuffers[_blitter.m_vb->handle.idx].update(0, numVertices*_blitter.m_decl.m_stride, _blitter.m_vb->data, true);
+				m_vertexBuffers[_blitter.m_vb->handle.idx].update(0, numVertices*_blitter.m_layout.m_stride, _blitter.m_vb->data, true);
 
 				deviceCtx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				deviceCtx->DrawIndexed(_numIndices, 0, 0);
@@ -2389,7 +2389,10 @@ namespace bgfx { namespace d3d11
 
 				m_scd.width  = _resolution.width;
 				m_scd.height = _resolution.height;
-				m_scd.format = s_textureFormat[_resolution.format].m_fmt;
+				m_scd.format = (_resolution.reset & BGFX_RESET_SRGB_BACKBUFFER)
+					? s_textureFormat[_resolution.format].m_fmtSrgb
+					: s_textureFormat[_resolution.format].m_fmt
+					;
 
 				preReset();
 
@@ -2578,19 +2581,19 @@ namespace bgfx { namespace d3d11
 			}
 		}
 
-		void setInputLayout(uint8_t _numStreams, const VertexDecl** _vertexDecls, const ProgramD3D11& _program, uint16_t _numInstanceData)
+		void setInputLayout(uint8_t _numStreams, const VertexLayout** _layouts, const ProgramD3D11& _program, uint16_t _numInstanceData)
 		{
 			bx::HashMurmur2A murmur;
 			murmur.begin();
 			murmur.add(_numInstanceData);
 			for (uint8_t stream = 0; stream < _numStreams; ++stream)
 			{
-				murmur.add(_vertexDecls[stream]->m_hash);
+				murmur.add(_layouts[stream]->m_hash);
 			}
 			uint64_t layoutHash = (uint64_t(_program.m_vsh->m_hash)<<32) | murmur.end();
 
-			ID3D11InputLayout* layout = m_inputLayoutCache.find(layoutHash);
-			if (NULL == layout)
+			ID3D11InputLayout* inputLayout = m_inputLayoutCache.find(layoutHash);
+			if (NULL == inputLayout)
 			{
 				D3D11_INPUT_ELEMENT_DESC vertexElements[Attrib::Count+1+BGFX_CONFIG_MAX_INSTANCE_DATA_COUNT];
 				D3D11_INPUT_ELEMENT_DESC* elem = vertexElements;
@@ -2600,19 +2603,19 @@ namespace bgfx { namespace d3d11
 
 				for (uint8_t stream = 0; stream < _numStreams; ++stream)
 				{
-					VertexDecl decl;
-					bx::memCopy(&decl, _vertexDecls[stream], sizeof(VertexDecl) );
+					VertexLayout layout;
+					bx::memCopy(&layout, _layouts[stream], sizeof(VertexLayout) );
 
 					const bool last = stream == _numStreams-1;
 
 					for (uint32_t ii = 0; ii < Attrib::Count; ++ii)
 					{
 						uint16_t mask = attrMask[ii];
-						uint16_t attr = (decl.m_attributes[ii] & mask);
+						uint16_t attr = (layout.m_attributes[ii] & mask);
 						if (0          == attr
 						||  UINT16_MAX == attr)
 						{
-							decl.m_attributes[ii] = last ? ~attr : UINT16_MAX;
+							layout.m_attributes[ii] = last ? ~attr : UINT16_MAX;
 						}
 						else
 						{
@@ -2620,7 +2623,7 @@ namespace bgfx { namespace d3d11
 						}
 					}
 
-					elem = fillVertexDecl(stream, elem, decl);
+					elem = fillVertexLayout(stream, elem, layout);
 				}
 
 				uint32_t num = uint32_t(elem-vertexElements);
@@ -2660,18 +2663,18 @@ namespace bgfx { namespace d3d11
 					, num
 					, _program.m_vsh->m_code->data
 					, _program.m_vsh->m_code->size
-					, &layout
+					, &inputLayout
 					) );
-				m_inputLayoutCache.add(layoutHash, layout);
+				m_inputLayoutCache.add(layoutHash, inputLayout);
 			}
 
-			m_deviceCtx->IASetInputLayout(layout);
+			m_deviceCtx->IASetInputLayout(inputLayout);
 		}
 
-		void setInputLayout(const VertexDecl& _vertexDecl, const ProgramD3D11& _program, uint16_t _numInstanceData)
+		void setInputLayout(const VertexLayout& _layout, const ProgramD3D11& _program, uint16_t _numInstanceData)
 		{
-			const VertexDecl* decls[1] = { &_vertexDecl };
-			setInputLayout(BX_COUNTOF(decls), decls, _program, _numInstanceData);
+			const VertexLayout* layouts[1] = { &_layout };
+			setInputLayout(BX_COUNTOF(layouts), layouts, _program, _numInstanceData);
 		}
 
 		void setBlendState(uint64_t _state, uint32_t _rgba = 0)
@@ -2846,6 +2849,7 @@ namespace bgfx { namespace d3d11
 				| BGFX_STATE_MSAA
 				| BGFX_STATE_LINEAA
 				| BGFX_STATE_CONSERVATIVE_RASTER
+				| BGFX_STATE_FRONT_CCW
 				;
 			_state |= _wireframe ? BGFX_STATE_PT_LINES : BGFX_STATE_NONE;
 			_state |= _scissor   ? BGFX_STATE_RESERVED_MASK : 0;
@@ -2862,7 +2866,7 @@ namespace bgfx { namespace d3d11
 					D3D11_RASTERIZER_DESC2 desc;
 					desc.FillMode = _wireframe ? D3D11_FILL_WIREFRAME : D3D11_FILL_SOLID;
 					desc.CullMode = s_cullMode[cull];
-					desc.FrontCounterClockwise = false;
+					desc.FrontCounterClockwise = !!(_state&BGFX_STATE_FRONT_CCW);
 					desc.DepthBias             = 0;
 					desc.DepthBiasClamp        = 0.0f;
 					desc.SlopeScaledDepthBias  = 0.0f;
@@ -3409,13 +3413,13 @@ namespace bgfx { namespace d3d11
 				}
 
 				VertexBufferD3D11& vb = m_vertexBuffers[_clearQuad.m_vb.idx];
-				const VertexDecl& vertexDecl = _clearQuad.m_decl;
+				const VertexLayout& layout = _clearQuad.m_layout;
 
-				const uint32_t stride = vertexDecl.m_stride;
+				const uint32_t stride = layout.m_stride;
 				const uint32_t offset = 0;
 
 				deviceCtx->IASetVertexBuffers(0, 1, &vb.m_ptr, &stride, &offset);
-				setInputLayout(vertexDecl, program, 0);
+				setInputLayout(layout, program, 0);
 
 				deviceCtx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 				deviceCtx->Draw(4, 0);
@@ -3473,7 +3477,7 @@ namespace bgfx { namespace d3d11
 		ShaderD3D11 m_shaders[BGFX_CONFIG_MAX_SHADERS];
 		ProgramD3D11 m_program[BGFX_CONFIG_MAX_PROGRAMS];
 		TextureD3D11 m_textures[BGFX_CONFIG_MAX_TEXTURES];
-		VertexDecl m_vertexDecls[BGFX_CONFIG_MAX_VERTEX_DECLS];
+		VertexLayout m_vertexLayouts[BGFX_CONFIG_MAX_VERTEX_LAYOUTS];
 		FrameBufferD3D11 m_frameBuffers[BGFX_CONFIG_MAX_FRAME_BUFFERS];
 		void* m_uniforms[BGFX_CONFIG_MAX_UNIFORMS];
 		Matrix4 m_predefinedUniforms[PredefinedUniform::Count];
@@ -3827,11 +3831,11 @@ namespace bgfx { namespace d3d11
 #endif // 0
 	}
 
-	void VertexBufferD3D11::create(uint32_t _size, void* _data, VertexDeclHandle _declHandle, uint16_t _flags)
+	void VertexBufferD3D11::create(uint32_t _size, void* _data, VertexLayoutHandle _layoutHandle, uint16_t _flags)
 	{
-		m_decl = _declHandle;
-		uint16_t stride = isValid(_declHandle)
-			? s_renderD3D11->m_vertexDecls[_declHandle.idx].m_stride
+		m_layoutHandle = _layoutHandle;
+		uint16_t stride = isValid(_layoutHandle)
+			? s_renderD3D11->m_vertexLayouts[_layoutHandle.idx].m_stride
 			: 0
 			;
 
@@ -3933,6 +3937,12 @@ namespace bgfx { namespace d3d11
 
 				uint16_t regCount = 0;
 				bx::read(&reader, regCount);
+
+				if (!isShaderVerLess(magic, 8) )
+				{
+					uint16_t texInfo = 0;
+					bx::read(&reader, texInfo);
+				}
 
 				const char* kind = "invalid";
 
@@ -4188,7 +4198,7 @@ namespace bgfx { namespace d3d11
 						if (convert)
 						{
 							uint32_t srcpitch = mip.m_width*bpp/8;
-							uint8_t* temp = (uint8_t*)BX_ALLOC(g_allocator, mip.m_width*mip.m_height*bpp/8);
+							uint8_t* temp = (uint8_t*)BX_ALLOC(g_allocator, srcpitch*mip.m_height);
 							bimg::imageDecodeToBgra8(g_allocator, temp, mip.m_data, mip.m_width, mip.m_height, srcpitch, mip.m_format);
 
 							srd[kk].pSysMem = temp;
@@ -4460,11 +4470,19 @@ namespace bgfx { namespace d3d11
 
 	void TextureD3D11::overrideInternal(uintptr_t _ptr)
 	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+		const bool readable = (m_srv != NULL);
+		if (readable) {
+			m_srv->GetDesc(&srvDesc);
+		}
+
 		destroy();
 		m_flags |= BGFX_SAMPLER_INTERNAL_SHARED;
 		m_ptr = (ID3D11Resource*)_ptr;
 
-		s_renderD3D11->m_device->CreateShaderResourceView(m_ptr, NULL, &m_srv);
+		if (readable) {
+			s_renderD3D11->m_device->CreateShaderResourceView(m_ptr, &srvDesc, &m_srv);
+		}
 	}
 
 	void TextureD3D11::update(uint8_t _side, uint8_t _mip, const Rect& _rect, uint16_t _z, uint16_t _depth, uint16_t _pitch, const Memory* _mem)
@@ -4494,7 +4512,12 @@ namespace bgfx { namespace d3d11
 		const uint32_t subres = _mip + ( (layer + _side) * m_numMips);
 		const bool     depth  = bimg::isDepth(bimg::TextureFormat::Enum(m_textureFormat) );
 		const uint32_t bpp    = bimg::getBitsPerPixel(bimg::TextureFormat::Enum(m_textureFormat) );
-		const uint32_t rectpitch  = _rect.m_width*bpp/8;
+		uint32_t rectpitch  = _rect.m_width*bpp/8;
+		if (bimg::isCompressed(bimg::TextureFormat::Enum(m_textureFormat)))
+		{
+			const bimg::ImageBlockInfo& blockInfo = bimg::getBlockInfo(bimg::TextureFormat::Enum(m_textureFormat));
+			rectpitch = (_rect.m_width / blockInfo.blockWidth)*blockInfo.blockSize;
+		}
 		const uint32_t srcpitch   = UINT16_MAX == _pitch ? rectpitch : _pitch;
 		const uint32_t slicepitch = rectpitch*_rect.m_height;
 
@@ -4754,19 +4777,43 @@ namespace bgfx { namespace d3d11
 					{
 						BX_CHECK(NULL == m_dsv, "Frame buffer already has depth-stencil attached.");
 
+						D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc;
+						dsvDesc.Format = s_textureFormat[texture.m_textureFormat].m_fmtDsv;
+						dsvDesc.Flags = 0;
+
 						switch (texture.m_type)
 						{
 						default:
 						case TextureD3D11::Texture2D:
 							{
-								D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc;
-								dsvDesc.Format        = s_textureFormat[texture.m_textureFormat].m_fmtDsv;
-								dsvDesc.ViewDimension = 1 < msaa.Count
-									? D3D11_DSV_DIMENSION_TEXTURE2DMS
-									: D3D11_DSV_DIMENSION_TEXTURE2D
-									;
-								dsvDesc.Flags = 0;
-								dsvDesc.Texture2D.MipSlice = at.mip;
+								if (1 < msaa.Count)
+								{
+									if (1 < texture.m_numLayers)
+									{
+										dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY;
+										dsvDesc.Texture2DMSArray.FirstArraySlice = at.layer;
+										dsvDesc.Texture2DMSArray.ArraySize       = 1;
+									}
+									else
+									{
+										dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DMS;
+									}
+								}
+								else
+								{
+									if (1 < texture.m_numLayers)
+									{
+										dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
+										dsvDesc.Texture2DArray.FirstArraySlice = at.layer;
+										dsvDesc.Texture2DArray.ArraySize       = 1;
+										dsvDesc.Texture2DArray.MipSlice        = at.mip;
+									}
+									else
+									{
+										dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+										dsvDesc.Texture2D.MipSlice = at.mip;
+									}
+								}
 								DX_CHECK(s_renderD3D11->m_device->CreateDepthStencilView(
 									  NULL == texture.m_rt ? texture.m_ptr : texture.m_rt
 									, &dsvDesc
@@ -4777,8 +4824,6 @@ namespace bgfx { namespace d3d11
 
 						case TextureD3D11::TextureCube:
 							{
-								D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc;
-								dsvDesc.Format = s_textureFormat[texture.m_textureFormat].m_fmtDsv;
 								if (1 < msaa.Count)
 								{
 									dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY;
@@ -4792,7 +4837,6 @@ namespace bgfx { namespace d3d11
 									dsvDesc.Texture2DArray.FirstArraySlice = at.layer;
 									dsvDesc.Texture2DArray.MipSlice        = at.mip;
 								}
-								dsvDesc.Flags = 0;
 								DX_CHECK(s_renderD3D11->m_device->CreateDepthStencilView(texture.m_ptr, &dsvDesc, &m_dsv) );
 							}
 							break;
@@ -4870,7 +4914,9 @@ namespace bgfx { namespace d3d11
 							break;
 						}
 
-						DX_CHECK(s_renderD3D11->m_device->CreateShaderResourceView(texture.m_ptr, NULL, &m_srv[m_num]) );
+						D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+						texture.m_srv->GetDesc(&srvDesc);
+						DX_CHECK(s_renderD3D11->m_device->CreateShaderResourceView(texture.m_ptr, &srvDesc, &m_srv[m_num]));
 						m_num++;
 					}
 					else
@@ -5900,7 +5946,7 @@ namespace bgfx { namespace d3d11
 					ID3D11Buffer* buffers[BGFX_CONFIG_MAX_VERTEX_STREAMS];
 					uint32_t strides[BGFX_CONFIG_MAX_VERTEX_STREAMS];
 					uint32_t offsets[BGFX_CONFIG_MAX_VERTEX_STREAMS];
-					const VertexDecl* decls[BGFX_CONFIG_MAX_VERTEX_STREAMS];
+					const VertexLayout* layouts[BGFX_CONFIG_MAX_VERTEX_STREAMS];
 
 					uint32_t numVertices = draw.m_numVertices;
 					uint8_t  numStreams  = 0;
@@ -5916,22 +5962,22 @@ namespace bgfx { namespace d3d11
 							streamMask >>= ntz;
 							idx         += ntz;
 
-							currentState.m_stream[idx].m_decl        = draw.m_stream[idx].m_decl;
-							currentState.m_stream[idx].m_handle      = draw.m_stream[idx].m_handle;
-							currentState.m_stream[idx].m_startVertex = draw.m_stream[idx].m_startVertex;
+							currentState.m_stream[idx].m_layoutHandle = draw.m_stream[idx].m_layoutHandle;
+							currentState.m_stream[idx].m_handle       = draw.m_stream[idx].m_handle;
+							currentState.m_stream[idx].m_startVertex  = draw.m_stream[idx].m_startVertex;
 
 							const uint16_t handle = draw.m_stream[idx].m_handle.idx;
 							const VertexBufferD3D11& vb = m_vertexBuffers[handle];
-							const uint16_t decl = isValid(draw.m_stream[idx].m_decl)
-								? draw.m_stream[idx].m_decl.idx
-								: vb.m_decl.idx;
-							const VertexDecl& vertexDecl = m_vertexDecls[decl];
-							const uint32_t stride = vertexDecl.m_stride;
+							const uint16_t layoutIdx = isValid(draw.m_stream[idx].m_layoutHandle)
+								? draw.m_stream[idx].m_layoutHandle.idx
+								: vb.m_layoutHandle.idx;
+							const VertexLayout& layout = m_vertexLayouts[layoutIdx];
+							const uint32_t stride = layout.m_stride;
 
 							buffers[numStreams] = vb.m_ptr;
 							strides[numStreams] = stride;
 							offsets[numStreams] = draw.m_stream[idx].m_startVertex * stride;
-							decls[numStreams]   = &vertexDecl;
+							layouts[numStreams]   = &layout;
 
 							numVertices = bx::uint32_min(UINT32_MAX == draw.m_numVertices
 								? vb.m_size/stride
@@ -5952,12 +5998,12 @@ namespace bgfx { namespace d3d11
 							const VertexBufferD3D11& inst = m_vertexBuffers[draw.m_instanceDataBuffer.idx];
 							const uint32_t instStride = draw.m_instanceDataStride;
 							deviceCtx->IASetVertexBuffers(numStreams, 1, &inst.m_ptr, &instStride, &draw.m_instanceDataOffset);
-							setInputLayout(numStreams, decls, m_program[currentProgram.idx], uint16_t(instStride/16) );
+							setInputLayout(numStreams, layouts, m_program[currentProgram.idx], uint16_t(instStride/16) );
 						}
 						else
 						{
 							deviceCtx->IASetVertexBuffers(numStreams, 1, s_zero.m_buffer, s_zero.m_zero, s_zero.m_zero);
-							setInputLayout(numStreams, decls, m_program[currentProgram.idx], 0);
+							setInputLayout(numStreams, layouts, m_program[currentProgram.idx], 0);
 						}
 					}
 					else
