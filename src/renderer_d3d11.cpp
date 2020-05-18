@@ -957,7 +957,7 @@ namespace bgfx { namespace d3d11
 
 			{
 				m_deviceInterfaceVersion = 0;
-				for (uint32_t ii = 0; ii < BX_COUNTOF(s_d3dDeviceIIDs); ++ii)
+				/*for (uint32_t ii = 0; ii < BX_COUNTOF(s_d3dDeviceIIDs); ++ii)
 				{
 					ID3D11Device* device;
 					HRESULT hr = m_device->QueryInterface(s_d3dDeviceIIDs[ii], (void**)&device);
@@ -967,7 +967,7 @@ namespace bgfx { namespace d3d11
 						m_deviceInterfaceVersion = BX_COUNTOF(s_d3dDeviceIIDs)-ii;
 						break;
 					}
-				}
+				}*/
 
 				{ ///
 					IDXGIDevice* renderdoc;
@@ -1104,6 +1104,7 @@ namespace bgfx { namespace d3d11
 					m_scd.height = _init.resolution.height;
 					m_backBufferColor        = (ID3D11RenderTargetView*)g_platformData.backBuffer;
 					m_backBufferDepthStencil = (ID3D11DepthStencilView*)g_platformData.backBufferDS;
+					m_msaaRt = NULL;
 				}
 			}
 
@@ -1188,7 +1189,7 @@ namespace bgfx { namespace d3d11
 						: 0)
 					);
 
-				m_timerQuerySupport   = m_featureLevel >= D3D_FEATURE_LEVEL_10_0;
+				m_timerQuerySupport = false;// m_featureLevel >= D3D_FEATURE_LEVEL_10_0;
 				m_directAccessSupport = 0 != (g_caps.supported & BGFX_CAPS_TEXTURE_DIRECT_ACCESS);
 
 				if (m_featureLevel <= D3D_FEATURE_LEVEL_9_2)
